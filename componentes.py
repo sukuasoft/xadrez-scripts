@@ -2,8 +2,9 @@ from random import random, randrange
 import bge
 from collections import OrderedDict
 from mathutils import Vector
-from uteis import Ponto
+from uteis import Ponto, XequeData
 from uteis import MovePecaEvent
+from uteis import print_array
 
 class peca(bge.types.KX_PythonComponent):
    
@@ -32,13 +33,50 @@ class peca(bge.types.KX_PythonComponent):
     def getPonto(self):
         return Ponto(self.object['coluna']
         , self.object['linha'])
-        
+    
+    def __str__(self) -> str:
+        return self.object.name
     def update(self):
-        if self.selected:
+        
+        if self.selected and self.gc_cp.xequeData.isXeque:
+            data = self.gc_cp.xequeData
+
+            index = data.getIndex(self.object.name)
+            
+            if index != -1:
+                 
+                pontos = data.pecaMovimentos[index][1]
+                if len(self.gc_cp.casasMarcadas) != 0:
+                     self.gc_cp.desmarcarCasas()
+
+                for p in pontos:
+                    c = self.gc_cp.getCasa(p)
+                    
+                    if c['isPeca']: 
+                        if c['jgPeca'] != self.object['jogador']:
+                            c.color = [0.78, 0, 0, 1]   
+                            c['marcado'] = True
+                            c['tipoMarca'] = 2
+                            self.gc_cp.casasMarcadas.append(c)
+                            
+                    else:
+                        c.color = [0, 0.78, 0.49, 1]
+                        c['marcado'] = True
+                        c['tipoMarca'] = 1
+                        self.gc_cp.casasMarcadas.append(c)
+                    
+                self.gc_cp.lastPecaSelected = self
+
+                self.selected  = False
+                    
+            pass
+
+        elif self.selected:
             self.gc_cp.marcarCasa(self, self.ponto, self.object['jogador'], self.tipoPeca, self.first)
             self.selected = False
         
         if self.isMove:
+            self.gc_cp.xequeData.limpar()
             if self.moveEvent == None:
                 self.moveEvent = MovePecaEvent(self.object.localPosition, self.casaTarget.localPosition, self.object) 
                 if self.casaTarget['tipoMarca'] == 2:
@@ -78,11 +116,14 @@ class peca(bge.types.KX_PythonComponent):
                 self.gc_cp.changeJogador()
                 self.gc_cp.wait = False
                 self.gc_cp.lastPecaSelected = None
+
+                self.gc_cp.checarXeque(self)
         pass
 
 
 class GC (bge.types.KX_PythonComponent):
     
+    args = {'reiPreto': '', 'reiBranco': ''}
     def start(self, args):
         self.wait = False
         self.jg_atual = 0
@@ -90,6 +131,10 @@ class GC (bge.types.KX_PythonComponent):
         objs = bge.logic.getCurrentScene().objects
         self.casas = []
         self.lastPecaSelected = None
+        self.reiPreto = objs[args['reiPreto']]
+        self.reiBranco = objs[args['reiBranco']]
+        self.xequeData = XequeData()
+
     
         cols = 'ABCDEFGH'
         
@@ -118,7 +163,321 @@ class GC (bge.types.KX_PythonComponent):
 
     def update(self):
         pass
+
+    def checarXeque(self, peca):
+        rei = None
+        if peca.object['jogador'] == 0:
+            rei = self.reiPreto
+        else:
+            rei = self.reiBranco
+
+       
+        pontos = None 
+        if peca.tipoPeca == 0:
+            dir = 1
+            if peca.object['jogador'] == 0:
+                 dir = -1
+
+            pontos = self.getPeao(peca.ponto, dir, peca.first)
+        elif peca.tipoPeca == 1:
+            pontos = self.getTorre(peca.ponto)
+        elif peca.tipoPeca == 2:
+            pontos = self.getCavalo(peca.ponto)
+        elif peca.tipoPeca == 3:
+            pontos = self.getBispo(peca.ponto)
+        
+        elif peca.tipoPeca == 4:
+            pontos = self.getBispo(peca.ponto)
+            pontos.extend(self.getTorre(peca.ponto))
+            
+        else:
+            pontos = self.getRei(peca.ponto)
+
+        isXeque = False
+        #Verificar se a peca jogada xekou o rei oponente
+        for p in pontos:
+           if p.igual(rei.components['peca'].ponto):
+               isXeque = True
+               break
+        
+        if isXeque:
+            
+            #marca o rei que foi xequado
+            self.xequeData.isXeque = True
+            c = self.getCasa(rei.components['peca'].ponto)
+            c.color = [0.62, 0.18, 0.73, 1]
+            self.casasMarcadas.append(c)
+
+            #pega os pontos onde o rei pode andar
+            pts = self.getRei(rei.components['peca'].ponto)
+            
+            index = 0
+            done = False
+
+            #tirando onde tem pecas amigas ou mesma equipa
+            while not done:
+                if not (index == len(pts)):
+                    c = self.getCasa(pts[index])
+
+                    if  c['isPeca'] and c['jgPeca'] == rei['jogador']:
+                        pts.remove(pts[index])
+                        index -= 1
+                    else:
+                        index += 1 
+                else:
+                    done = True
+         
+            #remove os perigos de andamento do rei
+            pts = self.removendoPerigos(pts, rei['jogador'])
+            
+            #mostrar os pontos onde rei pode andar
+            print(str(pts)) 
+
+            ##testa se o rei pode comer
+            for pt in pts:
+                if pt.igual(peca.ponto):
+                    isXeque = isXeque and False
+                    self.xequeData.add((rei.name, [pt]))
+                    #print('Rei pode comer o oponente')
+                    break
+            
+            ##testa se o rei pode andar para fugir o xeque 
+           
+
+            if len(pts) == 0:
+                print('Usuario nao pode mover-se')
+            else:
+                #print(pts)
+
+                self.xequeData.add((rei.name, pts))
+                isXeque = isXeque and False
+               # isXeque = True
+            
+
+            #Pecas disponiveis do rei atacado
+            jgs =  self.getJogadorEquipa(rei['jogador'])
+
+           # print_array(jgs)
+
+            #verifica se alguma peca pode eliminar o atacante
+            for jg in jgs:
+                pontos = None
+                if jg.tipoPeca == 0:
+                    dir = 1
+                    if rei['jogador'] == 0:
+                        dir = -1
+
+                    pontos = self.getPeao(jg.ponto, dir, jg.first)
+         
+                        
+                elif jg.tipoPeca == 1:
+                    pontos = self.getTorre(jg.ponto)
+                elif jg.tipoPeca == 2:
+                    pontos = self.getCavalo(jg.ponto)
+                elif jg.tipoPeca == 3:
+                    pontos = self.getBispo(jg.ponto)
+                
+                elif jg.tipoPeca == 4:
+                    pontos = self.getBispo(jg.ponto)
+                    pontos.extend(self.getTorre(peca.ponto))
+
+                else:
+                    continue
+                
+                for pt in pontos:
+                    if peca.ponto.igual(pt):
+                        self.xequeData.add((jg.object.name, [pt]))
+                        isXeque = isXeque and False
+                      #  print('Uma peca pode eliminar!')
+                        break
+            
+
+            ## Calculo da interpolacao
+
+            if peca.tipoPeca == 1 or peca.tipoPeca == 3 or peca.tipoPeca == 4:
+
+                #print('hello')
+                pontosInter = []
+                pontoRei = rei.components['peca'].ponto
+                
+                #analisa qual tipo de movimentação a peca fez
+                if peca.ponto.x == pontoRei.x or peca.ponto.y == pontoRei.y:
+
+                    #torre
+                    #print('torre')
+                    if  peca.ponto.x != pontoRei.x:
+                        dirX = -1
+                        if pontoRei.x > peca.ponto.x:
+                            dirX = 1
+                            
+                        done = False
+                        x = peca.ponto.x + dirX
+                        y = peca.ponto.y
+
+                        while not done:
+                            if pontoRei.x == x:
+                                done = True   
+                            else:
+                                pontosInter.append(Ponto(x, y))
+                                print(f'({x}, {y})')
+                                
+                            x += dirX
+
+                    else:
+                       
+                        dirY = -1
+
+                        if pontoRei.y > peca.ponto.y:
+                            dirY = 1
+
+                        done = False 
+                        x = peca.ponto.x 
+                        y = peca.ponto.y + dirY
+
+                        while not done:
+                            if pontoRei.y == y:
+                                done = True   
+                            else:
+                                pontosInter.append(Ponto(x, y))
+                                print(f'({x}, {y})')
+                                
+                            y += dirY   
+
+                           
+                    pass
+                else:
+                    #bispo
+                    print('bispo')
+                    dirX = -1
+                    if pontoRei.x > peca.ponto.x:
+                        dirX = 1 
+
+                    dirY = -1
+
+                    if pontoRei.y > peca.ponto.y:
+                        dirY = 1
+                    
+                    done = False
+                    x = peca.ponto.x + dirX
+                    y = peca.ponto.y + dirY
+
+                    while not done:
+                        if pontoRei.x == x and pontoRei.y == y:
+                            done = True   
+                        else:
+                            pontosInter.append(Ponto(x, y))
+                            print(f'({x}, {y})')
+                        
+                        x += dirX
+                        y += dirY
+
+                #print_array(pontosInter)
+                if  len(pontosInter) != 0:
+                  #  print_array(pontosInter)
+            
+                    for jg in jgs:
+                        pontos = None
+                        if jg.tipoPeca == 0:
+                            dir = 1
+                            if rei['jogador'] == 0:
+                                dir = -1
+
+                            pontos = self.getPeao(jg.ponto, dir, jg.first)
+                        elif jg.tipoPeca == 1:
+                            pontos = self.getTorre(jg.ponto)
+                        elif jg.tipoPeca == 2:
+                            pontos = self.getCavalo(jg.ponto)
+                        elif jg.tipoPeca == 3:
+                            pontos = self.getBispo(jg.ponto)
+                        
+                        elif peca.tipoPeca == 4:
+                            pontos = self.getBispo(jg.ponto)
+                            pontos.extend(self.getTorre(jg.ponto))
+                        
+                        else:
+                            continue
+
+                        for ptIn in pontosInter:
+                            for pt in pontos:
+                                if ptIn.igual(pt):
+                                    self.xequeData.add((jg.object.name, [ptIn]))
+            
+                                    isXeque = isXeque and False
+                                    break
+            #print('Checado!')
+            
+            if isXeque:
+                self.xequeData.isDone = True
+                print('Xeque-Mate')
+            else:
+                print('Saiu do xeque!')
+            
+        else:
+           # print('Não checado!')
+           pass
+        pass
     
+    
+    def removendoPerigos(self, pontos, jg):
+        oposto = 0
+        if jg == 0:
+            oposto = 1
+
+        opostos = self.getJogadorEquipa(oposto)
+
+        novoPontos = pontos
+
+        for op in opostos:
+            
+            pontos = novoPontos.copy()
+
+            if len (novoPontos) == 0:
+                break
+
+            pts = None
+            if op.tipoPeca == 0:
+                dir = 1
+                if op.object['jogador'] == 0:
+                    dir = -1
+
+                pts = self.getPeao(op.ponto, dir, op.first)
+            elif op.tipoPeca == 1:
+                pts = self.getTorre(op.ponto)
+            elif op.tipoPeca == 2:
+                pts = self.getCavalo(op.ponto)
+            elif op.tipoPeca == 3:
+                pts = self.getBispo(op.ponto)
+            elif op.tipoPeca == 4:
+                pts = self.getBispo(op.ponto)
+                pts.extend(self.getTorre(op.ponto))
+            else:
+                pts = self.getRei(op.ponto)
+            
+            for p in pontos:
+                for pt in pts:
+                    if p.igual(pt):
+                        novoPontos.remove(pt)
+                        break
+        
+        if len(novoPontos) == 0:
+            return []
+        return novoPontos
+
+    
+    def getJogadorEquipa(self, jg):
+    
+        jgs = []
+        for l in self.casas:
+            for c in l:
+                if c['isPeca'] and c['jgPeca'] == jg:
+                    obj = bge.logic.getCurrentScene().objects[c['namePeca']]
+                    if obj.components['peca'].tipoPeca != 5: 
+                        jgs.append(obj.components['peca'])
+
+        return jgs
+
+
+
     from random import randrange
     def promocao(self, peca):
         self.wait = True
@@ -147,7 +506,7 @@ class GC (bge.types.KX_PythonComponent):
         pass
 
     def eliminar_peca(self, name):
-        print(name)
+      
         bge.logic.getCurrentScene().objects[name].endObject()
     
     def changeJogador(self):
@@ -204,7 +563,8 @@ class GC (bge.types.KX_PythonComponent):
             
         elif peca == 5:
             pontos = self.getRei(ponto)
-            print(pontos)
+            pontos = self.removendoPerigos(pontos, pecaComponent.object['jogador'])
+         
         
         
         for p in pontos:

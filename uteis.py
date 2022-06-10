@@ -5,10 +5,24 @@ def lerp(a, b, t):
     
     
 class Ponto:
+    def mostrar(self):
+        return f'(X={self.x}, Y={self.y})'
     
+    def __str__(self) -> str:
+        return self.mostrar()
+        
     def __init__(self, x, y):
         self.x = x
         self.y = y
+    def igual(self, ponto):
+        return self.x == ponto.x and self.y == ponto.y
+    def __eq__(self, __o: object) -> bool:
+
+        if hasattr(__o, 'x') and hasattr(__o, 'y'):
+            return  self.igual(__o)
+        else:
+            return False
+    
 pass
 
 class MovePecaEvent:
@@ -19,7 +33,7 @@ class MovePecaEvent:
         self.target = target
         self.isFirstDone = False
         self.motionNormalDone = False
-        obj.playAction('upAction', 0, 20)
+        obj.playAction('upAction', 0, 10)
         self.delta = 0.0
         self.stepEvent = ((1000 / 60) / 1000) * 0.5
         pass
@@ -39,7 +53,7 @@ class MovePecaEvent:
                       
                 else:
                     self.objecto.stopAction()
-                    self.objecto.playAction('upAction', 20, 0)
+                    self.objecto.playAction('upAction', 10, 0)
                     self.motionNormalDone = True
                 self.delta += self.stepEvent   
                 return False
@@ -49,3 +63,44 @@ class MovePecaEvent:
                     
         pass
 pass
+
+
+class XequeData:
+    def __init__(self):
+        self.pecaMovimentos = []
+        self.isXeque = False
+        self.isDone = False
+        pass
+    def add(self, data):
+
+        index = self.getIndex(data[0])
+        if  index == -1:
+            self.pecaMovimentos.append(data)
+        else:
+            self.pecaMovimentos[index][1].extend(data[1])
+
+        #for p in self.pecaMovimentos:
+       #     print(p[1].mostrar())
+            
+    
+    def getIndex(self, key):
+        index = 0
+        for c in self.pecaMovimentos:
+            if c[0] == key:
+                return index
+            
+            index += 1
+
+        return -1
+
+    def limpar(self):
+        self.pecaMovimentos = []
+        self.isXeque = False
+    pass
+
+
+def print_array(lista):
+    for li in lista:
+        print(str(li) + ', ' , end="")
+    
+    print('')

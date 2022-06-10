@@ -19,5 +19,3 @@ if over.positive and click.positive:
             c = game_controller.getCasa(Ponto(own['coluna'], own['linha']))
             if  not game_controller.wait and c['marcado'] and c['tipoMarca'] != 0:
                     game_controller.moverPeca(c)
-            
-    
